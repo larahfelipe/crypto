@@ -16,8 +16,11 @@ import (
 
 type Mnemonic struct {
 	Phrase    string
-	Seed      []byte
 	CreatedAt time.Time
+}
+
+type HDExtendedKey struct {
+	*hdkeychain.ExtendedKey
 }
 
 type KeyPair struct {
@@ -26,38 +29,14 @@ type KeyPair struct {
 }
 
 const (
-	PathSeparatorChar = "/"
-	HardenedKeyChar   = "'"
-	RootKeyChar       = "m"
+	PathSeparator   = "/"
+	PathHardenedKey = "'"
+	PathRootKey     = "m"
 )
 
-func getSeedFromMnemonic(mnemonicPhrase string, password string) ([]byte, error) {
-	if !bip39.IsMnemonicValid(mnemonicPhrase) {
-		return nil, errors.New("ERROR: invalid mnemonic phrase")
-	}
-
-	seed := bip39.NewSeed(mnemonicPhrase, password)
-
-	return seed, nil
-}
-
-func getMasterKeyFromMnemonic(mnemonicPhrase string, password string) (*hdkeychain.ExtendedKey, error) {
-	seed, err := getSeedFromMnemonic(mnemonicPhrase, password)
-	if err != nil {
-		return nil, errors.New("ERROR: failed to get seed from mnemonic" + err.Error())
-	}
-
-	masterKey, err := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
-	if err != nil {
-		return nil, errors.New("ERROR: failed to generate master key from seed" + err.Error())
-	}
-
-	return masterKey, nil
-}
-
-func generateNewMnemonic(bitSize int) (*Mnemonic, error) {
-	if bitSize != 128 && bitSize != 256 {
-		return nil, errors.New("ERROR: bit size must be 128 or 256")
+func createMnemonic(bitSize int) (*Mnemonic, error) {
+	if bitSize < 128 || bitSize > 256 || bitSize%32 != 0 {
+		return nil, errors.New("ERROR: invalid bit size")
 	}
 
 	entropy, err := bip39.NewEntropy(bitSize)
@@ -70,33 +49,49 @@ func generateNewMnemonic(bitSize int) (*Mnemonic, error) {
 		return nil, errors.New("ERROR: failed to generate mnemonic phrase from entropy" + err.Error())
 	}
 
-	seed, err := getSeedFromMnemonic(mnemonicPhrase, "")
-	if err != nil {
-		return nil, err
-	}
-
 	return &Mnemonic{
 		Phrase:    mnemonicPhrase,
-		Seed:      seed,
 		CreatedAt: time.Now(),
 	}, nil
 }
 
-func deriveChildKeyPairFromMasterKey(masterKey *hdkeychain.ExtendedKey, derivationPath string) (*KeyPair, error) {
-	pathComponents := strings.Split(strings.Trim(derivationPath, PathSeparatorChar), PathSeparatorChar)
+func (mnemonic *Mnemonic) getSeed(password string) ([]byte, error) {
+	if !bip39.IsMnemonicValid(mnemonic.Phrase) {
+		return nil, errors.New("ERROR: invalid mnemonic phrase")
+	}
+
+	seed, err := bip39.NewSeedWithErrorChecking(mnemonic.Phrase, password)
+	if err != nil {
+		return nil, errors.New("ERROR: failed to generate seed from mnemonic" + err.Error())
+	}
+
+	return seed, nil
+}
+
+func (mnemonic *Mnemonic) getMasterKey(seed []byte) (*HDExtendedKey, error) {
+	masterKey, err := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
+	if err != nil {
+		return nil, errors.New("ERROR: failed to generate master key from seed" + err.Error())
+	}
+
+	return &HDExtendedKey{masterKey}, nil
+}
+
+func (masterKey *HDExtendedKey) deriveChildKeyPair(path string) (*KeyPair, error) {
+	pathComponents := strings.Split(strings.Trim(path, PathSeparator), PathSeparator)
 	if len(pathComponents) == 0 {
 		return nil, errors.New("ERROR: invalid derivation path")
 	}
 
-	childKey := masterKey
+	childKey := masterKey.ExtendedKey
 
 	for _, c := range pathComponents {
-		if c == RootKeyChar {
+		if c == PathRootKey {
 			continue
 		}
 
-		hardened := strings.HasSuffix(c, HardenedKeyChar)
-		indexTrimmed := strings.TrimSuffix(c, HardenedKeyChar)
+		hardened := strings.HasSuffix(c, PathHardenedKey)
+		indexTrimmed := strings.TrimSuffix(c, PathHardenedKey)
 		index, err := strconv.ParseUint(indexTrimmed, 10, 32)
 		if err != nil {
 			return nil, errors.New("ERROR: failed to parse index" + err.Error())
@@ -132,24 +127,29 @@ func deriveChildKeyPairFromMasterKey(masterKey *hdkeychain.ExtendedKey, derivati
 }
 
 func main() {
-	// mnemonic, err := generateNewMnemonic(128)
-	// if err != nil {
-	// 	panic(err)
-	// }
 	mnemonicPhrase := strings.Join(os.Args[1:], " ")
 
-	masterKey, err := getMasterKeyFromMnemonic(mnemonicPhrase, "")
+	mnemonic := &Mnemonic{
+		Phrase: mnemonicPhrase,
+	}
+
+	seed, err := mnemonic.getSeed("")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	keyPair, err := deriveChildKeyPairFromMasterKey(masterKey, "m/44'/195'/0'/0/0")
+	masterKey, err := mnemonic.getMasterKey(seed)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	keyPair, err := masterKey.deriveChildKeyPair("m/44'/195'/0'/0/0")
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	fmt.Println("\n---")
-	fmt.Println("Mnemonic Phrase:", mnemonicPhrase)
+	fmt.Println("Mnemonic:", mnemonic.Phrase)
 	fmt.Println("Private Key:", strings.ToUpper(keyPair.PrivateKey))
 	fmt.Println("Public Key:", strings.ToUpper(keyPair.PublicKey))
 }
