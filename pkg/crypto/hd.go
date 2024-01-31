@@ -1,7 +1,6 @@
 package crypto
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -26,21 +25,21 @@ const (
 )
 
 func CreateMasterKey(seed []byte) (*HDExtendedKey, error) {
-  masterKey, err := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
-  if err != nil {
-    return nil, errors.New("ERROR: failed to generate master key from seed" + err.Error())
-  }
-
-  return &HDExtendedKey{masterKey}, nil
-}
-
-func (masterKey *HDExtendedKey) DeriveChildKeyPair(path string) (*KeyPair, error) {
-	pathComponents := strings.Split(strings.Trim(path, PathSeparator), PathSeparator)
-	if len(pathComponents) == 0 {
-		return nil, errors.New("ERROR: invalid derivation path")
+	masterKey, err := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate master key from seed: %s", err)
 	}
 
-	childKey := masterKey.ExtendedKey
+	return &HDExtendedKey{masterKey}, nil
+}
+
+func (mk *HDExtendedKey) DeriveChildKeyPair(path string) (*KeyPair, error) {
+	pathComponents := strings.Split(strings.Trim(path, PathSeparator), PathSeparator)
+	if len(pathComponents) == 0 {
+		return nil, fmt.Errorf("provided path is invalid")
+	}
+
+	childKey := mk.ExtendedKey
 
 	for _, c := range pathComponents {
 		if c == PathRootKey {
@@ -51,7 +50,7 @@ func (masterKey *HDExtendedKey) DeriveChildKeyPair(path string) (*KeyPair, error
 		indexTrimmed := strings.TrimSuffix(c, PathHardenedKey)
 		index, err := strconv.ParseUint(indexTrimmed, 10, 32)
 		if err != nil {
-			return nil, errors.New("ERROR: failed to parse index" + err.Error())
+			return nil, fmt.Errorf("failed to parse index: %s", err)
 		}
 
 		if hardened {
@@ -60,25 +59,22 @@ func (masterKey *HDExtendedKey) DeriveChildKeyPair(path string) (*KeyPair, error
 
 		childKey, err = childKey.Child(uint32(index))
 		if err != nil {
-			return nil, errors.New("ERROR: failed to derive master key" + err.Error())
+			return nil, fmt.Errorf("failed to derive master key: %s", err)
 		}
 	}
 
-	privKeyRaw, err := childKey.ECPrivKey()
+	rawPrivKey, err := childKey.ECPrivKey()
 	if err != nil {
-		return nil, errors.New("ERROR: failed to get private key from child key" + err.Error())
+		return nil, fmt.Errorf("failed to get private key from child key: %s", err)
 	}
 
-	pubKeyRaw, err := childKey.ECPubKey()
+	rawPubKey, err := childKey.ECPubKey()
 	if err != nil {
-		return nil, errors.New("ERROR: failed to get public key from child key" + err.Error())
+		return nil, fmt.Errorf("failed to get public key from child key: %s", err)
 	}
-
-	privKey := fmt.Sprintf("%x", privKeyRaw.Serialize())
-	pubKey := fmt.Sprintf("%x", pubKeyRaw.SerializeUncompressed())
 
 	return &KeyPair{
-		PrivateKey: privKey,
-		PublicKey:  pubKey,
+		PrivateKey: fmt.Sprintf("%x", rawPrivKey.Serialize()),
+		PublicKey:  fmt.Sprintf("%x", rawPubKey.SerializeUncompressed()),
 	}, nil
 }

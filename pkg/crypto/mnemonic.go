@@ -1,51 +1,58 @@
 package crypto
 
 import (
-	"errors"
-	"time"
+	"fmt"
 
 	"github.com/tyler-smith/go-bip39"
 )
 
 type Mnemonic struct {
-	Phrase    string
-	CreatedAt time.Time
+	Phrase string
+	Seed   []byte
 }
 
-func (mnemonic *Mnemonic) GetMasterKey(seed []byte) (*HDExtendedKey, error) {
-  return CreateMasterKey(seed)
+func (m *Mnemonic) GetMasterKey(seed []byte) (*HDExtendedKey, error) {
+	return CreateMasterKey(seed)
 }
 
-func (mnemonic *Mnemonic) GetSeed(password string) ([]byte, error) {
-	if !bip39.IsMnemonicValid(mnemonic.Phrase) {
-		return nil, errors.New("ERROR: invalid mnemonic phrase")
+func (m *Mnemonic) GetSeed(password string) ([]byte, error) {
+	if !bip39.IsMnemonicValid(m.Phrase) {
+		return nil, fmt.Errorf("provided mnemonic phrase is invalid")
 	}
 
-	seed, err := bip39.NewSeedWithErrorChecking(mnemonic.Phrase, password)
+	seed, err := bip39.NewSeedWithErrorChecking(m.Phrase, password)
 	if err != nil {
-		return nil, errors.New("ERROR: failed to generate seed from mnemonic" + err.Error())
+		return nil, fmt.Errorf("failed to generate seed from mnemonic phrase: %s", err)
 	}
 
 	return seed, nil
 }
 
-func CreateMnemonic(bitSize int) (*Mnemonic, error) {
+func NewMnemonic(bitSize int) (*Mnemonic, error) {
 	if bitSize < 128 || bitSize > 256 || bitSize%32 != 0 {
-		return nil, errors.New("ERROR: invalid bit size")
+		return nil, fmt.Errorf("invalid bit size for generating mnemonic phrase: must be between 128 and 256 and a multiple of 32")
 	}
 
 	entropy, err := bip39.NewEntropy(bitSize)
 	if err != nil {
-		return nil, errors.New("ERROR: failed to generate entropy from bit size" + err.Error())
+		return nil, fmt.Errorf("failed to generate entropy from bit size: %s", err)
 	}
 
 	mnemonicPhrase, err := bip39.NewMnemonic(entropy)
 	if err != nil {
-		return nil, errors.New("ERROR: failed to generate mnemonic phrase from entropy" + err.Error())
+		return nil, fmt.Errorf("failed to generate mnemonic phrase from entropy: %s", err)
 	}
 
-	return &Mnemonic{
-		Phrase:    mnemonicPhrase,
-		CreatedAt: time.Now(),
-	}, nil
+	mnemonic := &Mnemonic{
+		Phrase: mnemonicPhrase,
+	}
+
+	mnemonicSeed, err := mnemonic.GetSeed("")
+	if err != nil {
+		return nil, err
+	}
+
+	mnemonic.Seed = mnemonicSeed
+
+	return mnemonic, nil
 }
