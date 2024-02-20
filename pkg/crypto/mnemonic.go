@@ -11,8 +11,13 @@ type Mnemonic struct {
 	Seed   []byte
 }
 
-func (m *Mnemonic) GetMasterKey(seed []byte) (*HDExtendedKey, error) {
-	return CreateMasterKey(seed)
+func (m *Mnemonic) GetMasterKey(seed []byte) (*Key, error) {
+	masterKey, err := NewMasterKey(seed)
+	if err != nil {
+		return nil, err
+	}
+
+	return masterKey, nil
 }
 
 func (m *Mnemonic) GetSeed(password string) ([]byte, error) {

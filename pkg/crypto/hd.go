@@ -9,13 +9,9 @@ import (
 	"github.com/btcsuite/btcutil/hdkeychain"
 )
 
-type HDExtendedKey struct {
-	*hdkeychain.ExtendedKey
-}
-
-type KeyPair struct {
-	PrivateKey string
-	PublicKey  string
+type Key struct {
+	Path string
+	Key  *hdkeychain.ExtendedKey
 }
 
 const (
@@ -24,22 +20,25 @@ const (
 	PathRootKey     = "m"
 )
 
-func CreateMasterKey(seed []byte) (*HDExtendedKey, error) {
+func NewMasterKey(seed []byte) (*Key, error) {
 	masterKey, err := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate master key from seed: %s", err)
 	}
 
-	return &HDExtendedKey{masterKey}, nil
+	return &Key{
+		Path: "",
+		Key:  masterKey,
+	}, nil
 }
 
-func (mk *HDExtendedKey) DeriveChildKeyPair(path string) (*KeyPair, error) {
-	pathComponents := strings.Split(strings.Trim(path, PathSeparator), PathSeparator)
+func (k *Key) Derive(childPath string) (*Key, error) {
+	pathComponents := strings.Split(strings.Trim(childPath, PathSeparator), PathSeparator)
 	if len(pathComponents) == 0 {
-		return nil, fmt.Errorf("provided path is invalid")
+		return nil, fmt.Errorf("invalid child path")
 	}
 
-	childKey := mk.ExtendedKey
+	childKey := k.Key
 
 	for _, c := range pathComponents {
 		if c == PathRootKey {
@@ -63,18 +62,8 @@ func (mk *HDExtendedKey) DeriveChildKeyPair(path string) (*KeyPair, error) {
 		}
 	}
 
-	rawPrivKey, err := childKey.ECPrivKey()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get private key from child key: %s", err)
-	}
-
-	rawPubKey, err := childKey.ECPubKey()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get public key from child key: %s", err)
-	}
-
-	return &KeyPair{
-		PrivateKey: fmt.Sprintf("%x", rawPrivKey.Serialize()),
-		PublicKey:  fmt.Sprintf("%x", rawPubKey.SerializeUncompressed()),
+	return &Key{
+		Path: childPath,
+		Key:  childKey,
 	}, nil
 }
